@@ -1,3 +1,2 @@
 #!/bin/bash
-javac -d build src/*  \
-    && ./run.sh $@
+./build.sh && ./run.sh $@

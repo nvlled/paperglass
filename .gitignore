@@ -1,1 +1,4 @@
 build/*
+dist/
+build.sh
+dist.sh

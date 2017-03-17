@@ -1,7 +1,9 @@
 package com.github.nvlled.paperglass;
 
 import java.io.*;
+import java.util.*;
 import java.lang.reflect.*;
+import java.net.*;
 
 public class Main {
     // This is actually a good chance to try kotlin.... (or maybe later)
@@ -55,6 +57,7 @@ public class Main {
                        .replace("public", "");
     }
 
+
     public static void main(String[] args) {
         boolean showProtected;
 
@@ -72,17 +75,21 @@ public class Main {
         } catch (ClassNotFoundException e) {
             out.println("not found: " + className);
             out.println("(check your classpath or your spelling)");
+
+            //for (Class classMem: getClassesInPackage(className))
+                //out.println(classMem.getName());
+
             return;
         }
 
 
         out.println(getClassType(c) + " " + 
-                    c.getSimpleName() + 
-                    toTypeParamString(c.getTypeParameters()));
+                c.getSimpleName() + 
+                toTypeParamString(c.getTypeParameters()));
 
         if (c.getGenericSuperclass() != null)
             out.println("  extends " + removePackageName(c.getGenericSuperclass().toString()));
-        
+
         out.print("  implements " + joinTypes(c.getGenericInterfaces()));
         out.println("\n");
 
