@@ -1,3 +1,3 @@
 #!/bin/bash
-./gradlew build &&\
-    java -cp build/classes com.github.nvlled.paperglass.Main $@
+./gradlew --daemon build &&\
+    java -cp build/classes/main com.github.nvlled.paperglass.Main $@
