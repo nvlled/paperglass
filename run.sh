@@ -1,2 +1,3 @@
 #!/bin/bash
-java -cp build com.github.nvlled.paperglass.Main $@
+./gradlew build &&\
+    java -cp build/classes com.github.nvlled.paperglass.Main $@
