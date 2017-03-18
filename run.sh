@@ -1,3 +1,6 @@
 #!/bin/bash
-./gradlew --daemon build &&\
-    java -cp build/classes/main com.github.nvlled.paperglass.Main $@
+
+dir=`dirname $0`
+classpath=${CLASSPATH/;/:}
+
+java -cp "$classpath:$dir/paperglass.jar" com.github.nvlled.paperglass.Main $@

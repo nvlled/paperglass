@@ -25,3 +25,14 @@ jar {
         )
     }
 }
+
+task dist(dependsOn: 'jar', type: Copy) {
+    ext.dest =  "build/dist"
+    delete "$dest/dist/**/*"
+    mkdir dest
+    from "build/libs/paperglass.jar"
+    from "run.sh"
+    rename ("run.sh", "paperglass.sh")
+    into dest
+    println "files copied into $dest"
+}
