@@ -8,13 +8,8 @@ repositories {
     mavenCentral()
 }
 
-// In this section you declare the dependencies for your production and test code
 dependencies {
-
-    // Declare the dependency for your favourite test framework you want to use in your tests.
-    // TestNG is also supported by the Gradle Test task. Just change the
-    // testCompile dependency to testCompile 'org.testng:testng:6.8.1' and add
-    // 'test.useTestNG()' to your build script.
+    compile "com.beust:jcommander:1.48"
     testCompile 'junit:junit:4.12'
 }
 
@@ -24,15 +19,20 @@ jar {
             "Main-Class" : "com.github.nvlled.paperglass.Main"
         )
     }
+    from {
+        configurations.compile.collect { it.isDirectory() ? it : zipTree(it) }
+    }
 }
 
 task dist(dependsOn: 'jar', type: Copy) {
-    ext.dest =  "build/dist"
-    delete "$dest/dist/**/*"
+    ext.dest =  "$buildDir/dist"
     mkdir dest
-    from "build/libs/paperglass.jar"
+    from "$buildDir/libs/paperglass.jar"
     from "run.sh"
     rename ("run.sh", "paperglass.sh")
     into dest
-    println "files copied into $dest"
+
+    doLast {
+        println "files copied into $dest"
+    }
 }

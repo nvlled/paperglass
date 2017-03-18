@@ -1,11 +1,14 @@
 package com.github.nvlled.paperglass;
 
 import java.io.*;
+import java.nio.file.*;
+import java.nio.file.attribute.BasicFileAttributes;
 import java.util.*;
 import java.util.regex.*;
 import java.lang.reflect.*;
 import java.net.*;
 import java.util.jar.*;
+import com.beust.jcommander.*;
 
 public class Main {
     // This is actually a good chance to try kotlin.... (or maybe later)
@@ -13,8 +16,8 @@ public class Main {
 
     static class SearchResult {
 
-        public final int matchCount;
-        public final String lastMatch;
+        public int matchCount;
+        public String lastMatch;
 
         public SearchResult(int count, String match) {
             matchCount = count;
@@ -47,11 +50,6 @@ public class Main {
         System.out.println("    paperglass com");
     }
 
-    static String removePackageName(String fqn) {
-        return fqn.replaceAll("(\\w+\\.)+", "");
-    }
-
-
     static <T> String join(T[] ts, CharSequence sep, Strfn<T> fn) {
         String[] strs = new String[ts.length];
         for (int i = 0; i < strs.length; i++)
@@ -61,7 +59,7 @@ public class Main {
 
     static String joinTypes(Type[] params) {
         String str = join(params, ", ", new Strfn<Type>() {
-            public String apply(Type t) { return removePackageName(t.getTypeName()); }
+            public String apply(Type t) { return ClassUtil.removePackageName(t.getTypeName()); }
         });
         return str;
     }
@@ -73,33 +71,6 @@ public class Main {
         return "";
     }
 
-    static String getClassType(Class c) {
-        if (c.isEnum())
-            return "enum";
-        else if (c.isInterface())
-            return "interface";
-        else if (c.isArray())
-            return "array";
-        else if (c.isPrimitive())
-            return "primitive";
-        else
-            return "class";
-    }
-
-    static String printModifiers(Member t) { // excluding public
-        return Modifier.toString(t.getModifiers())
-                .replace("public", "");
-    }
-
-    static boolean isLoadable(String className) {
-        try {
-            Class.forName(className);
-            return true;
-        } catch (ExceptionInInitializerError e) {
-        } catch (Exception e) { }
-        return false;
-    }
-
     public static String joinPath(String path1, String path2) {
         int len = path1.length();
         if (len == 0)
@@ -107,6 +78,42 @@ public class Main {
         if (path1.charAt(len-1) != '/')
             path1 = path1 + "/";
         return path1 + path2;
+    }
+
+    public static SearchResult findStdClass(String packageName) {
+        String sub = packageName.replace(".", "/");
+        final SearchResult result = new SearchResult(0, "");
+        Path basePath = Paths.get(getStdDir(), sub);
+
+        System.out.println("**" + basePath);
+        try {
+            Files.walkFileTree(basePath, new SimpleFileVisitor<Path>() {
+                @Override
+                public FileVisitResult visitFile(Path p, BasicFileAttributes attrs) {
+                    List<String> lines = new ArrayList<String>();
+                    try {
+                        lines = Files.readAllLines(p, java.nio.charset.Charset.defaultCharset());
+                    } catch (IOException e) { }
+
+                    String prefix = packageName + p.getParent()
+                                        .toString()
+                                        .replace(basePath+"", "").replace("/", ".");
+
+                    for (String line : lines) {
+                        String className = prefix+"."+line;
+                        if (packagePat.matcher(className).matches()) {
+                            System.out.println(className);
+                            result.matchCount++;
+                            result.lastMatch = className;
+                        }
+                    }
+                    return FileVisitResult.CONTINUE;
+                }
+            });
+        } catch (IOException e) {
+            System.err.println("tree walk failed: " + e);
+        }
+        return result;
     }
 
     public static SearchResult findLoadableClasses(String classDir, String sub) {
@@ -117,7 +124,7 @@ public class Main {
             for (String filename: dirFile.list()) {
                 String className = joinPath(sub, filename).replace("/", ".");
                 className = className.replace(".class", "");
-                if (isLoadable(className)) {
+                if (ClassUtil.isLoadable(className)) {
                     if (packagePat.matcher(className).matches()) {
                         System.out.println(className);
                         lastMatch = className;
@@ -150,7 +157,7 @@ public class Main {
             String classDir = path.replace(packageDir, "");
             return findLoadableClasses(classDir, packageDir);
         } 
-        
+
         int matches = 0;
         String lastMatch = "";
         if(packageURL.getProtocol().equals("jar")) {
@@ -170,7 +177,7 @@ public class Main {
                     if (i >= 0) {
                         entryName = entryName.substring(packageDir.length(), i);
                         String className = (packageDir + entryName).replace("/", ".");
-                        if (isLoadable(className) && packagePat.matcher(className).matches()) {
+                        if (ClassUtil.isLoadable(className) && packagePat.matcher(className).matches()) {
                             System.out.println(className);
                             lastMatch = className;
                             matches++;
@@ -200,8 +207,59 @@ public class Main {
         return "";
     }
 
+    static String getStdDir() {
+        String distDir = ".";
+        try {
+            distDir =
+                new File(Main.class.getProtectionDomain().getCodeSource().getLocation().toURI().getPath())
+                .getParent();
+        } catch (URISyntaxException e) { }
+
+        return distDir + "/std";
+    }
+
+    static class Options {
+        @com.beust.jcommander.Parameter
+        List<String> parameters = new ArrayList<String>();
+
+        @com.beust.jcommander.Parameter(names="-std", description="source zip file of jdk")
+        String jdkSource = "";
+
+        @com.beust.jcommander.Parameter(names={"-i", "-index"}, description="index of class to view")
+        int resultIndex = 0;
+    }
+
+    static void tryBuildIndex(String stdFilename) {
+        SourceReader r = null;
+        try {
+            r = new SourceReader(stdFilename);
+        } catch (IOException e) {
+            System.err.println(e.getMessage());
+            return;
+        }
+
+        Indexer indexer = new Indexer(getStdDir());
+        if (indexer.indexExists())
+            return;
+
+        indexer.build(r);
+    }
+
     public static void main(String[] args) throws Exception {
         boolean showProtected;
+
+        Options opts = new Options();
+        try {
+            new com.beust.jcommander.JCommander(opts, args);
+        } catch (ParameterException e) {
+            System.err.println("insufficient commandline parameters: " + e);
+            return;
+        }
+
+        if (opts.jdkSource.length() > 0)
+            tryBuildIndex(opts.jdkSource);
+
+        args = opts.parameters.toArray(new String[]{});
 
         if (args.length == 0) {
             usage();
@@ -229,6 +287,8 @@ public class Main {
 
             String packageName = className;
             SearchResult result = getClassNamesFromPackage(packageName);
+            if (result.matchCount == 0)
+                result = findStdClass(packageName);
 
             if (result.matchCount == 1) {
                 c = Class.forName(result.lastMatch);
@@ -241,12 +301,12 @@ public class Main {
             }
         }
 
-        out.println(getClassType(c) + " " + 
+        out.println(ClassUtil.getClassType(c) + " " +
                 c.getSimpleName() + 
                 toTypeParamString(c.getTypeParameters()));
 
         if (c.getGenericSuperclass() != null)
-            out.println("  extends " + removePackageName(c.getGenericSuperclass().toString()));
+            out.println("  extends " + ClassUtil.removePackageName(c.getGenericSuperclass().toString()));
 
         out.print("  implements " + joinTypes(c.getGenericInterfaces()));
         out.println("\n");
@@ -259,7 +319,7 @@ public class Main {
                 }
             });
             out.print("  "+c.getSimpleName() + "("+params+")");
-            out.println(" " + printModifiers(t));
+            out.println(" " + ClassUtil.printModifiers(t));
         }
         out.println();
 
@@ -271,9 +331,9 @@ public class Main {
             Type ret = t.getGenericReturnType();
             out.print("    ");
             out.print(t.getName() + "(" + joinTypes(t.getGenericParameterTypes()) + ")");
-            out.print(": " + removePackageName(ret.getTypeName()));
+            out.print(": " + ClassUtil.removePackageName(ret.getTypeName()));
 
-            String modStr = printModifiers(t);
+            String modStr = ClassUtil.printModifiers(t);
             if (modStr.length() > 0)
                 out.print(" | " + modStr);
             out.println();
