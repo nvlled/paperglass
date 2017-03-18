@@ -9,18 +9,48 @@ import java.util.jar.*;
 
 public class Main {
     // This is actually a good chance to try kotlin.... (or maybe later)
+    interface Strfn<T> { String apply(T x); }
 
-    static Pattern methodPat = Pattern.compile(".*");
+    static class SearchResult {
 
-    static void usage(String[] args) {
-        System.out.println("Usage: paperglass <class or interface>");
+        public final int matchCount;
+        public final String lastMatch;
+
+        public SearchResult(int count, String match) {
+            matchCount = count;
+            lastMatch = match;
+        }
+        @Override
+        public String toString() {
+            return String.format("result{count=%d, lastMatch=%s", matchCount, lastMatch);
+        }
+    }
+
+    static Pattern packagePat = Pattern.compile(".*");
+    static Pattern methodPat  = Pattern.compile(".*");
+
+    static void usage() {
+        System.out.println("Usage: paperglass <CLASS or PACKAGE>");
+        System.out.println("       paperglass <CLASS> [methodName regex]");
+        System.out.println("       paperglass <PACKAGE> [package regex] [methodName regex]");
+        System.out.println("");
+        System.out.println("CLASS must be fully qualified, e.g., com.example.sub.ClassName");
+        System.out.println("PACKAGE can be partial (it is not a regex).");
+        System.out.println("  For instance, if PACKAGE is com.example, then all classes under");
+        System.out.println("  com.example and com.example.sub and so on are listed.");
+        System.out.println("");
+        System.out.println("Examples:");
+        System.out.println("    paperglass com.example.ClassA methodName");
+        System.out.println("    paperglass com.example.sub.ClassB getS");
+        System.out.println("    paperglass com.example ClassB methodNa");
+        System.out.println("    paperglass com.example");
+        System.out.println("    paperglass com");
     }
 
     static String removePackageName(String fqn) {
         return fqn.replaceAll("(\\w+\\.)+", "");
     }
 
-    interface Strfn<T> { String apply(T x); }
 
     static <T> String join(T[] ts, CharSequence sep, Strfn<T> fn) {
         String[] strs = new String[ts.length];
@@ -79,23 +109,33 @@ public class Main {
         return path1 + path2;
     }
 
-    public static void findLoadableClasses(String classDir, String sub) {
+    public static SearchResult findLoadableClasses(String classDir, String sub) {
         File dirFile = new File(classDir + "/" + sub);
+        int matches = 0;
+        String lastMatch = "";
         if (dirFile.isDirectory()) {
             for (String filename: dirFile.list()) {
                 String className = joinPath(sub, filename).replace("/", ".");
                 className = className.replace(".class", "");
                 if (isLoadable(className)) {
-                    if (methodPat.matcher(className).matches())
+                    if (packagePat.matcher(className).matches()) {
                         System.out.println(className);
+                        lastMatch = className;
+                        matches++;
+                    }
                 } else {
-                    findLoadableClasses(classDir, joinPath(sub, filename));
+                    SearchResult subResult = findLoadableClasses(classDir, joinPath(sub, filename));
+                    if (subResult.matchCount > 0) {
+                        matches = subResult.matchCount;
+                        lastMatch = subResult.lastMatch;
+                    }
                 }
             }
         }
+        return new SearchResult(matches, lastMatch);
     }
 
-    public static boolean getClassNamesFromPackage(String packageName) throws IOException{
+    public static SearchResult getClassNamesFromPackage(String packageName) throws IOException{
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         URL packageURL;
 
@@ -103,14 +143,17 @@ public class Main {
         packageURL = classLoader.getResource(packageDir);
 
         if (packageURL == null)
-            return false;
+            return new SearchResult(0, "");
 
         if (packageURL.getProtocol() == "file") {
             String path = packageURL.getPath();
             String classDir = path.replace(packageDir, "");
-            findLoadableClasses(classDir, packageDir);
-
-        } else if(packageURL.getProtocol().equals("jar")){
+            return findLoadableClasses(classDir, packageDir);
+        } 
+        
+        int matches = 0;
+        String lastMatch = "";
+        if(packageURL.getProtocol().equals("jar")) {
             String jarFileName;
             JarFile jf;
             Enumeration<JarEntry> jarEntries;
@@ -120,20 +163,24 @@ public class Main {
             jarFileName = jarFileName.substring(5,jarFileName.indexOf("!"));
             jf = new JarFile(jarFileName);
             jarEntries = jf.entries();
-            while(jarEntries.hasMoreElements()){
+            while(jarEntries.hasMoreElements()) {
                 entryName = jarEntries.nextElement().getName();
-                if(entryName.startsWith(packageDir) && entryName.length()>packageDir.length()+5){
+                if(entryName.startsWith(packageDir) && entryName.length()>packageDir.length()+5) {
                     int i = entryName.lastIndexOf('.');
                     if (i >= 0) {
                         entryName = entryName.substring(packageDir.length(), i);
                         String className = (packageDir + entryName).replace("/", ".");
-                        if (isLoadable(className) && methodPat.matcher(className).matches())
+                        if (isLoadable(className) && packagePat.matcher(className).matches()) {
                             System.out.println(className);
+                            lastMatch = className;
+                            matches++;
+                        }
                     }
                 }
             }
         }
-        return true;
+
+        return new SearchResult(matches, lastMatch);
     }
 
     static String findClassdir(String packageName) {
@@ -157,32 +204,41 @@ public class Main {
         boolean showProtected;
 
         if (args.length == 0) {
-            usage(args);
+            usage();
             return;
         }
 
         PrintStream out = System.out;
         String className = args[0];
 
-        if (args.length > 1) {
-            String pat = ".*" + args[1] + ".*";
-            methodPat = Pattern.compile(pat, Pattern.CASE_INSENSITIVE);
+        if (args.length == 3) {
+            packagePat = Pattern.compile(".*" + args[1] + ".*", Pattern.CASE_INSENSITIVE);
+            methodPat  = Pattern.compile(".*" + args[2] + ".*", Pattern.CASE_INSENSITIVE);
+        } else if (args.length == 2) {
+            packagePat  = Pattern.compile(".*" + args[1] + ".*", Pattern.CASE_INSENSITIVE);
+        } else if (args.length != 1) {
+            usage();
+            return;
         }
 
-        Class<?> c;
+        Class<?> c = null; // TODO: rename to _class
         try {
             ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
             c = Class.forName(className);
         } catch (ClassNotFoundException e) {
 
             String packageName = className;
-            boolean found = getClassNamesFromPackage(packageName);
-            if (!found) {
-                out.print("not found: " + className);
-                out.println(" (check your classpath or your spelling)");
-            }
+            SearchResult result = getClassNamesFromPackage(packageName);
 
-            return;
+            if (result.matchCount == 1) {
+                c = Class.forName(result.lastMatch);
+            } else {
+                if (result.matchCount == 0) {
+                    out.print("not found: " + className);
+                    out.println(" (check your classpath or your spelling)");
+                }
+                return;
+            }
         }
 
         out.println(getClassType(c) + " " + 
@@ -224,6 +280,3 @@ public class Main {
         }
     }
 }
-
-
-
