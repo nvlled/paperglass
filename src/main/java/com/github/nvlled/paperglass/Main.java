@@ -11,23 +11,10 @@ import java.util.jar.*;
 import com.beust.jcommander.*;
 
 public class Main {
+    public static final int MATCH_LIMIT = 2048;
+
     // This is actually a good chance to try kotlin.... (or maybe later)
     interface Strfn<T> { String apply(T x); }
-
-    static class SearchResult {
-
-        public int matchCount;
-        public String lastMatch;
-
-        public SearchResult(int count, String match) {
-            matchCount = count;
-            lastMatch = match;
-        }
-        @Override
-        public String toString() {
-            return String.format("result{count=%d, lastMatch=%s", matchCount, lastMatch);
-        }
-    }
 
     static Pattern packagePat = Pattern.compile(".*");
     static Pattern methodPat  = Pattern.compile(".*");
@@ -80,12 +67,11 @@ public class Main {
         return path1 + path2;
     }
 
-    public static SearchResult findStdClass(String packageName) {
+    public static List<String> findStdClass(String packageName) {
         String sub = packageName.replace(".", "/");
-        final SearchResult result = new SearchResult(0, "");
         Path basePath = Paths.get(getStdDir(), sub);
+        List<String> matches = new LimitedList<String>(MATCH_LIMIT);
 
-        System.out.println("**" + basePath);
         try {
             Files.walkFileTree(basePath, new SimpleFileVisitor<Path>() {
                 @Override
@@ -102,9 +88,7 @@ public class Main {
                     for (String line : lines) {
                         String className = prefix+"."+line;
                         if (packagePat.matcher(className).matches()) {
-                            System.out.println(className);
-                            result.matchCount++;
-                            result.lastMatch = className;
+                            matches.add(className);
                         }
                     }
                     return FileVisitResult.CONTINUE;
@@ -113,36 +97,31 @@ public class Main {
         } catch (IOException e) {
             System.err.println("tree walk failed: " + e);
         }
-        return result;
+        return matches;
     }
 
-    public static SearchResult findLoadableClasses(String classDir, String sub) {
+    public static List<String> findLoadableClasses(String classDir, String sub) {
         File dirFile = new File(classDir + "/" + sub);
-        int matches = 0;
-        String lastMatch = "";
+        List<String> matches = new LimitedList<String>(MATCH_LIMIT);
+
         if (dirFile.isDirectory()) {
             for (String filename: dirFile.list()) {
                 String className = joinPath(sub, filename).replace("/", ".");
                 className = className.replace(".class", "");
                 if (ClassUtil.isLoadable(className)) {
                     if (packagePat.matcher(className).matches()) {
-                        System.out.println(className);
-                        lastMatch = className;
-                        matches++;
+                        matches.add(className);
                     }
                 } else {
-                    SearchResult subResult = findLoadableClasses(classDir, joinPath(sub, filename));
-                    if (subResult.matchCount > 0) {
-                        matches = subResult.matchCount;
-                        lastMatch = subResult.lastMatch;
-                    }
+                    List<String> subMatches = findLoadableClasses(classDir, joinPath(sub, filename));
+                    matches.addAll(subMatches);
                 }
             }
         }
-        return new SearchResult(matches, lastMatch);
+        return matches;
     }
 
-    public static SearchResult getClassNamesFromPackage(String packageName) throws IOException{
+    public static List<String> getClassNamesFromPackage(String packageName) throws IOException{
         ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
         URL packageURL;
 
@@ -150,7 +129,7 @@ public class Main {
         packageURL = classLoader.getResource(packageDir);
 
         if (packageURL == null)
-            return new SearchResult(0, "");
+            return new ArrayList<String>();
 
         if (packageURL.getProtocol() == "file") {
             String path = packageURL.getPath();
@@ -158,8 +137,7 @@ public class Main {
             return findLoadableClasses(classDir, packageDir);
         } 
 
-        int matches = 0;
-        String lastMatch = "";
+        List<String> matches = new LimitedList<String>(MATCH_LIMIT);
         if(packageURL.getProtocol().equals("jar")) {
             String jarFileName;
             JarFile jf;
@@ -178,16 +156,14 @@ public class Main {
                         entryName = entryName.substring(packageDir.length(), i);
                         String className = (packageDir + entryName).replace("/", ".");
                         if (ClassUtil.isLoadable(className) && packagePat.matcher(className).matches()) {
-                            System.out.println(className);
-                            lastMatch = className;
-                            matches++;
+                            matches.add(className);
                         }
                     }
                 }
             }
         }
 
-        return new SearchResult(matches, lastMatch);
+        return matches;
     }
 
     static String findClassdir(String packageName) {
@@ -225,8 +201,14 @@ public class Main {
         @com.beust.jcommander.Parameter(names="-std", description="source zip file of jdk")
         String jdkSource = "";
 
-        @com.beust.jcommander.Parameter(names={"-i", "-index"}, description="index of class to view")
-        int resultIndex = 0;
+        @com.beust.jcommander.Parameter(names={"-i", "-index"}, description="index from matches")
+        int matchIndex = -1;
+
+        @com.beust.jcommander.Parameter(names={"-k", "-packages"}, description="show only packages")
+        boolean showOnlyPackages = false;
+
+        @com.beust.jcommander.Parameter(names={"-f", "-fqn"}, description="Show Fully Qualified Names")
+        boolean showOnlyPackages = false;
     }
 
     static void tryBuildIndex(String stdFilename) {
@@ -252,7 +234,7 @@ public class Main {
         try {
             new com.beust.jcommander.JCommander(opts, args);
         } catch (ParameterException e) {
-            System.err.println("insufficient commandline parameters: " + e);
+            System.err.println("**" + e);
             return;
         }
 
@@ -286,16 +268,30 @@ public class Main {
         } catch (ClassNotFoundException e) {
 
             String packageName = className;
-            SearchResult result = getClassNamesFromPackage(packageName);
-            if (result.matchCount == 0)
-                result = findStdClass(packageName);
+            List<String> matches = getClassNamesFromPackage(packageName);
 
-            if (result.matchCount == 1) {
-                c = Class.forName(result.lastMatch);
+            if (matches.size() == 0)
+                matches = findStdClass(packageName);
+
+            int index = opts.matchIndex;
+
+            if (matches.size() == 1)
+                index = 0;
+
+            boolean validIndex = index >= 0 && index < matches.size();
+
+            if (validIndex) {
+                c = Class.forName(matches.get(index));
             } else {
-                if (result.matchCount == 0) {
+                if (matches.size() == 0) {
                     out.print("not found: " + className);
                     out.println(" (check your classpath or your spelling)");
+                } else {
+                    int i = 0;
+                    for (String m: matches) {
+                        System.out.printf("%4d] %s\n", i, m);
+                        i++;
+                    }
                 }
                 return;
             }
