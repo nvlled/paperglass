@@ -207,8 +207,8 @@ public class Main {
         @com.beust.jcommander.Parameter(names={"-k", "-packages"}, description="show only packages")
         boolean showOnlyPackages = false;
 
-        @com.beust.jcommander.Parameter(names={"-f", "-fqn"}, description="Show Fully Qualified Names")
-        boolean showOnlyPackages = false;
+        @com.beust.jcommander.Parameter(names={"-f", "-full"}, description="Show full package names")
+        boolean showFullName = false;
     }
 
     static void tryBuildIndex(String stdFilename) {
@@ -302,30 +302,42 @@ public class Main {
                 toTypeParamString(c.getTypeParameters()));
 
         if (c.getGenericSuperclass() != null)
-            out.println("  extends " + ClassUtil.removePackageName(c.getGenericSuperclass().toString()));
+            out.println("  extends " +
+                    ClassUtil.removePackageName(c.getGenericSuperclass().toString()));
 
-        out.print("  implements " + joinTypes(c.getGenericInterfaces()));
+        Type[] interfaces = c.getGenericInterfaces();
+        if (interfaces.length > 0) {
+            out.print("  implements " + joinTypes(interfaces));
+        }
         out.println("\n");
 
+        String indent = "   ";
+
         out.println("constructors: ");
+        if (c.getConstructors().length == 0)
+            out.println(indent + "(none)");
+
         for (Constructor t: c.getConstructors()) {
             String params = join(t.getParameterTypes(), ", ", new Strfn<Class>() {
                 public String apply(Class c) {
                     return c.getSimpleName();
                 }
             });
-            out.print("  "+c.getSimpleName() + "("+params+")");
-            out.println(" " + ClassUtil.printModifiers(t));
+            out.print(indent + c.getSimpleName() + "("+params+")");
+            out.println(indent + ClassUtil.printModifiers(t));
         }
         out.println();
 
         out.println("methods: ");
+        if (c.getMethods().length == 0)
+            out.println(indent + "(none)");
+
         for (Method t: c.getMethods()) {
             if ( ! methodPat.matcher(t.getName()).matches())
                 continue;
 
             Type ret = t.getGenericReturnType();
-            out.print("    ");
+            out.print(indent);
             out.print(t.getName() + "(" + joinTypes(t.getGenericParameterTypes()) + ")");
             out.print(": " + ClassUtil.removePackageName(ret.getTypeName()));
 
