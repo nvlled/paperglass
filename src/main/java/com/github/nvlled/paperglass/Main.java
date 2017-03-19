@@ -19,22 +19,34 @@ public class Main {
     static Pattern packagePat = Pattern.compile(".*");
     static Pattern methodPat  = Pattern.compile(".*");
 
-    static void usage() {
-        System.out.println("Usage: paperglass <CLASS or PACKAGE>");
-        System.out.println("       paperglass <CLASS> [methodName regex]");
-        System.out.println("       paperglass <PACKAGE> [package regex] [methodName regex]");
-        System.out.println("");
+    static boolean shortName = true;
+
+    static void usage(JCommander jcom) {
+        jcom.setProgramName("paperglass.sh");
+        jcom.usage();
         System.out.println("CLASS must be fully qualified, e.g., com.example.sub.ClassName");
         System.out.println("PACKAGE can be partial (it is not a regex).");
         System.out.println("  For instance, if PACKAGE is com.example, then all classes under");
         System.out.println("  com.example and com.example.sub and so on are listed.");
         System.out.println("");
+        System.out.println("Note: You need to have a zip archive of the JDK source before");
+        System.out.println("      you can search from the java standard library");
+        System.out.println("      such from java.lang or java.util");
+        System.out.println("      Then run: paperglass.sh -std /path/to/jdk/src.zip");
+        System.out.println("      This only need to be done once.");
+        System.out.println("");
         System.out.println("Examples:");
-        System.out.println("    paperglass com.example.ClassA methodName");
-        System.out.println("    paperglass com.example.sub.ClassB getS");
-        System.out.println("    paperglass com.example ClassB methodNa");
-        System.out.println("    paperglass com.example");
-        System.out.println("    paperglass com");
+        System.out.println("    paperglass.sh java.lang");
+        System.out.println("    paperglass.sh java.lang -k");
+        System.out.println("    paperglass.sh java.util -c list");
+        System.out.println("    paperglass.sh java.util -c list -i 1");
+        System.out.println("    paperglass.sh java.util -c list -i 8 -m add");
+    }
+
+    static String removePackageName(String name) {
+        if (shortName)
+            return ClassUtil.removePackageName(name);
+        return name;
     }
 
     static <T> String join(T[] ts, CharSequence sep, Strfn<T> fn) {
@@ -46,7 +58,7 @@ public class Main {
 
     static String joinTypes(Type[] params) {
         String str = join(params, ", ", new Strfn<Type>() {
-            public String apply(Type t) { return ClassUtil.removePackageName(t.getTypeName()); }
+            public String apply(Type t) { return removePackageName(t.getTypeName()); }
         });
         return str;
     }
@@ -195,7 +207,7 @@ public class Main {
     }
 
     static class Options {
-        @com.beust.jcommander.Parameter
+        @com.beust.jcommander.Parameter(description="<CLASS or PACKAGE>")
         List<String> parameters = new ArrayList<String>();
 
         @com.beust.jcommander.Parameter(names="-std", description="source zip file of jdk")
@@ -209,57 +221,70 @@ public class Main {
 
         @com.beust.jcommander.Parameter(names={"-f", "-full"}, description="Show full package names")
         boolean showFullName = false;
+
+        @com.beust.jcommander.Parameter(names={"-c", "-class"}, description="Filter class name by regex")
+        String classRegex = "";
+
+        @com.beust.jcommander.Parameter(names={"-m", "-method"}, description="Filter method name by regex")
+        String methodRegex = "";
     }
 
-    static void tryBuildIndex(String stdFilename) {
+    static boolean tryBuildIndex(String stdFilename) {
         SourceReader r = null;
         try {
             r = new SourceReader(stdFilename);
         } catch (IOException e) {
-            System.err.println(e.getMessage());
-            return;
+            return false;
         }
 
         Indexer indexer = new Indexer(getStdDir());
         if (indexer.indexExists())
-            return;
+            return true;
 
         indexer.build(r);
+        return true;
     }
 
     public static void main(String[] args) throws Exception {
         boolean showProtected;
 
         Options opts = new Options();
+        JCommander jcom;
         try {
-            new com.beust.jcommander.JCommander(opts, args);
+            jcom = new JCommander(opts, args);
         } catch (ParameterException e) {
             System.err.println("**" + e);
             return;
         }
 
-        if (opts.jdkSource.length() > 0)
-            tryBuildIndex(opts.jdkSource);
+        if (opts.jdkSource.length() > 0) {
+            boolean success = tryBuildIndex(opts.jdkSource);
+            if (!success) {
+                System.err.println("JDK source file must a valid zip archive");
+                return;
+            }
+        }
+
+        if (opts.showFullName)
+            shortName = false;
 
         args = opts.parameters.toArray(new String[]{});
 
-        if (args.length == 0) {
-            usage();
+        if (args.length != 1) {
+            usage(jcom);
             return;
         }
 
         PrintStream out = System.out;
         String className = args[0];
 
-        if (args.length == 3) {
-            packagePat = Pattern.compile(".*" + args[1] + ".*", Pattern.CASE_INSENSITIVE);
-            methodPat  = Pattern.compile(".*" + args[2] + ".*", Pattern.CASE_INSENSITIVE);
-        } else if (args.length == 2) {
-            packagePat  = Pattern.compile(".*" + args[1] + ".*", Pattern.CASE_INSENSITIVE);
-        } else if (args.length != 1) {
-            usage();
-            return;
-        }
+        String mrx = opts.methodRegex;
+        String crx = opts.classRegex;
+
+        if (mrx.length() > 0)
+            methodPat  = Pattern.compile(".*" + mrx + ".*", Pattern.CASE_INSENSITIVE);
+        if (crx.length() > 0)
+            packagePat = Pattern.compile(".*" + crx + ".*", Pattern.CASE_INSENSITIVE);
 
         Class<?> c = null; // TODO: rename to _class
         try {
@@ -272,6 +297,19 @@ public class Main {
 
             if (matches.size() == 0)
                 matches = findStdClass(packageName);
+
+
+            if (opts.showOnlyPackages) {
+                Set<String> packageNames = new TreeSet<String>();
+                for (String m: matches) {
+                    int li = m.lastIndexOf(".");
+                    packageNames.add(m.substring(0, li));
+                }
+                out.println("# Show matching packages only (-k)");
+                for (String m: packageNames)
+                    out.println(m);
+                return;
+            }
 
             int index = opts.matchIndex;
 
@@ -298,18 +336,19 @@ public class Main {
         }
 
         out.println(ClassUtil.getClassType(c) + " " +
-                c.getSimpleName() + 
+                c.getName() +
                 toTypeParamString(c.getTypeParameters()));
 
         if (c.getGenericSuperclass() != null)
             out.println("  extends " +
-                    ClassUtil.removePackageName(c.getGenericSuperclass().toString()));
+                    removePackageName(c.getGenericSuperclass().toString()));
 
         Type[] interfaces = c.getGenericInterfaces();
         if (interfaces.length > 0) {
             out.print("  implements " + joinTypes(interfaces));
+            out.println();
         }
-        out.println("\n");
+        out.println("");
 
         String indent = "   ";
 
@@ -339,7 +378,7 @@ public class Main {
             Type ret = t.getGenericReturnType();
             out.print(indent);
             out.print(t.getName() + "(" + joinTypes(t.getGenericParameterTypes()) + ")");
-            out.print(": " + ClassUtil.removePackageName(ret.getTypeName()));
+            out.print(": " + removePackageName(ret.getTypeName()));
 
             String modStr = ClassUtil.printModifiers(t);
             if (modStr.length() > 0)
