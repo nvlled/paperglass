@@ -372,6 +372,14 @@ public class Main {
         }
         out.println();
 
+        out.println("fields: ");
+        Field[] fields = c.getFields();
+        if (fields.length == 0)
+            out.println(indent + "(none)");
+        for (Field f: fields)
+            System.out.println(indent + " " + f.getName() + ": " + removePackageName(f.getType()+""));
+        System.out.println();
+
         out.println("methods: ");
         if (c.getMethods().length == 0)
             out.println(indent + "(none)");
