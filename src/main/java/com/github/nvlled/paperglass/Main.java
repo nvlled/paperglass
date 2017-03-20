@@ -16,7 +16,7 @@ public class Main {
     // This is actually a good chance to try kotlin.... (or maybe later)
     interface Strfn<T> { String apply(T x); }
 
-    static Pattern packagePat = Pattern.compile(".*");
+    static Pattern classPat = Pattern.compile(".*");
     static Pattern methodPat  = Pattern.compile(".*");
 
     static boolean shortName = true;
@@ -99,7 +99,7 @@ public class Main {
 
                     for (String line : lines) {
                         String className = prefix+"."+line;
-                        if (packagePat.matcher(className).matches()) {
+                        if (classPat.matcher(line).matches()) {
                             matches.add(className);
                         }
                     }
@@ -118,10 +118,10 @@ public class Main {
 
         if (dirFile.isDirectory()) {
             for (String filename: dirFile.list()) {
+                filename = filename.replace(".class", "");
                 String className = joinPath(sub, filename).replace("/", ".");
-                className = className.replace(".class", "");
                 if (ClassUtil.isLoadable(className)) {
-                    if (packagePat.matcher(className).matches()) {
+                    if (classPat.matcher(filename).matches()) {
                         matches.add(className);
                     }
                 } else {
@@ -167,7 +167,9 @@ public class Main {
                     if (i >= 0) {
                         entryName = entryName.substring(packageDir.length(), i);
                         String className = (packageDir + entryName).replace("/", ".");
-                        if (ClassUtil.isLoadable(className) && packagePat.matcher(className).matches()) {
+                        String shortClassName = basename(entryName);
+                        if (ClassUtil.isLoadable(className) &&
+                                classPat.matcher(shortClassName).matches()) {
                             matches.add(className);
                         }
                     }
@@ -176,6 +178,15 @@ public class Main {
         }
 
         return matches;
+    }
+
+    static String basename(String s) {
+        int i = s.lastIndexOf("/");
+        int len = s.length();
+        if (i >= 0 && i < len-1) {
+            return s.substring(i+1, len);
+        }
+        return s;
     }
 
     static String findClassdir(String packageName) {
@@ -284,7 +295,7 @@ public class Main {
         if (mrx.length() > 0)
             methodPat  = Pattern.compile(".*" + mrx + ".*", Pattern.CASE_INSENSITIVE);
         if (crx.length() > 0)
-            packagePat = Pattern.compile(".*" + crx + ".*", Pattern.CASE_INSENSITIVE);
+            classPat = Pattern.compile(".*" + crx + ".*", Pattern.CASE_INSENSITIVE);
 
         Class<?> c = null; // TODO: rename to _class
         try {
