@@ -291,10 +291,10 @@ public class Main {
         if (crx.length() > 0)
             classPat = Pattern.compile(".*" + crx + ".*", Pattern.CASE_INSENSITIVE);
 
-        Class<?> c = null; // TODO: rename to _class
+        Class<?> _class = null;
         try {
             ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
-            c = Class.forName(className);
+            _class = Class.forName(className);
         } catch (ClassNotFoundException e) {
 
             String packageName = className;
@@ -324,7 +324,7 @@ public class Main {
             boolean validIndex = index >= 0 && index < matches.size();
 
             if (validIndex) {
-                c = Class.forName(matches.get(index));
+                _class = Class.forName(matches.get(index));
             } else {
                 if (matches.size() == 0) {
                     out.print("not found: " + className);
@@ -340,15 +340,15 @@ public class Main {
             }
         }
 
-        out.println(ClassUtil.getClassType(c) + " " +
-                c.getName() +
-                toTypeParamString(c.getTypeParameters()));
+        out.println(ClassUtil.getClassType(_class) + " " +
+                _class.getName() +
+                toTypeParamString(_class.getTypeParameters()));
 
-        if (c.getGenericSuperclass() != null)
+        if (_class.getGenericSuperclass() != null)
             out.println("  extends " +
-                    removePackageName(c.getGenericSuperclass().toString()));
+                    removePackageName(_class.getGenericSuperclass().toString()));
 
-        Type[] interfaces = c.getGenericInterfaces();
+        Type[] interfaces = _class.getGenericInterfaces();
         if (interfaces.length > 0) {
             out.print("  implements " + joinTypes(interfaces));
             out.println();
@@ -358,22 +358,22 @@ public class Main {
         String indent = "   ";
 
         out.println("constructors: ");
-        if (c.getConstructors().length == 0)
+        if (_class.getConstructors().length == 0)
             out.println(indent + "(none)");
 
-        for (Constructor t: c.getConstructors()) {
+        for (Constructor t: _class.getConstructors()) {
             String params = join(t.getParameterTypes(), ", ", new Strfn<Class>() {
-                public String apply(Class c) {
-                    return c.getSimpleName();
+                public String apply(Class _class) {
+                    return _class.getSimpleName();
                 }
             });
-            out.print(indent + c.getSimpleName() + "("+params+")");
+            out.print(indent + _class.getSimpleName() + "("+params+")");
             out.println(indent + ClassUtil.printModifiers(t));
         }
         out.println();
 
         out.println("fields: ");
-        Field[] fields = c.getFields();
+        Field[] fields = _class.getFields();
         if (fields.length == 0)
             out.println(indent + "(none)");
         for (Field f: fields)
@@ -381,10 +381,10 @@ public class Main {
         System.out.println();
 
         out.println("methods: ");
-        if (c.getMethods().length == 0)
+        if (_class.getMethods().length == 0)
             out.println(indent + "(none)");
 
-        for (Method t: c.getMethods()) {
+        for (Method t: _class.getMethods()) {
             if ( ! methodPat.matcher(t.getName()).matches())
                 continue;
 
