@@ -29,12 +29,6 @@ public class Main {
         System.out.println("  For instance, if PACKAGE is com.example, then all classes under");
         System.out.println("  com.example and com.example.sub and so on are listed.");
         System.out.println("");
-        System.out.println("Note: You need to have a zip archive of the JDK source before");
-        System.out.println("      you can search from the java standard library");
-        System.out.println("      such from java.lang or java.util");
-        System.out.println("      Then run: paperglass.sh -std /path/to/jdk/src.zip");
-        System.out.println("      This only need to be done once.");
-        System.out.println("");
         System.out.println("Examples:");
         System.out.println("    paperglass.sh java.lang");
         System.out.println("    paperglass.sh java.lang -k");

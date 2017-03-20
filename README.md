@@ -14,13 +14,18 @@ This might be useful for
 Download a ![release](https://github.com/nvlled/paperglass/releases), then 
 add the extracted directory in your path. 
 
-## Building
+## Building from source
 Run ```./gradlew dist``` from the project directory.
 The executable file will be in build/dist. 
+Note: You need to have a zip archive of the JDK source before
+you can search from the java standard library
+such from java.lang or java.util
+Then run: paperglass.sh -std /path/to/jdk/src.zip
+This only need to be done once.
 
 ## Running
 Running ```paperglass.sh``` without parameters will show the help contents.
 Note that paperglass will use the contents of the $CLASSPATH when searching 
 for classes. For example:
 
-```CLASSPATH=/path/to/gdx.jar paperglass.sh com.badlogic.gdx -c sprite```
+```CLASSPATH=lib.jar:/path/to/gdx.jar paperglass.sh com.badlogic.gdx -c sprite```
